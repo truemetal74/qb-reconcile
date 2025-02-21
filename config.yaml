@@ -1,0 +1,11 @@
+file1:
+  description: "Description"
+  date: "Posted Date"
+  charge_amount: "Debit"
+  payment_amount: "Credit"
+
+file2:
+  description: "Memo"
+  date: "Date"
+  charge_amount: "Charge"
+  payment_amount: "Payment"
