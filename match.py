@@ -66,15 +66,33 @@ class TransactionMatcher:
         df2_counts = df2.groupby(['amount']).size().reset_index(name='count2')
         
         # Get descriptions and dates for each amount
-        def get_desc_dates(group):
+        def get_desc_dates(df):
             from collections import Counter
             # Create tuples of (date, description) and count them
-            date_desc_pairs = [(row['date'], row['description']) for _, row in group.iterrows()]
+            date_desc_pairs = list(zip(df['date'], df['description']))
             counts = Counter(date_desc_pairs)
             return [(date, desc, count) for (date, desc), count in counts.items()]
             
-        df1_info = df1.groupby('amount').apply(get_desc_dates).reset_index(name='info1')
-        df2_info = df2.groupby('amount').apply(get_desc_dates).reset_index(name='info2')
+        # Group by amount and collect date/description info
+        df1_info = df1.groupby('amount').agg({
+            'date': list,
+            'description': list
+        }).reset_index()
+        df1_info['info1'] = df1_info.apply(lambda x: get_desc_dates(pd.DataFrame({
+            'date': x['date'],
+            'description': x['description']
+        })), axis=1)
+        df1_info = df1_info[['amount', 'info1']]
+
+        df2_info = df2.groupby('amount').agg({
+            'date': list,
+            'description': list
+        }).reset_index()
+        df2_info['info2'] = df2_info.apply(lambda x: get_desc_dates(pd.DataFrame({
+            'date': x['date'],
+            'description': x['description']
+        })), axis=1)
+        df2_info = df2_info[['amount', 'info2']]
         
         # Merge counts and descriptions with the merged dataframe
         merged = merged.merge(df1_counts, on=['amount'], how='left')
@@ -91,6 +109,9 @@ class TransactionMatcher:
             (merged['_merge'] == 'both') & 
             (merged['count1'] != merged['count2'])
         ]
+        
+        # Remove duplicate rows based on amount
+        duplicates = duplicates.drop_duplicates(subset=['amount'])
         
         if not duplicates.empty:
             print("\nDuplicate transactions (count mismatch):")
