@@ -13,132 +13,107 @@ class TransactionMatcher:
 
     def _standardize_amount(self, row: pd.Series, file_config: Dict) -> float:
         """Calculate standardized transaction amount from charge or payment."""
-        charge_col = file_config.get('charge_amount')
-        payment_col = file_config.get('payment_amount')
-        
-        amount = 0.0
-        if charge_col and pd.notna(row[charge_col]):
-            # Remove commas and convert to float
-            amount = float(str(row[charge_col]).replace(',', ''))
-        elif payment_col and pd.notna(row[payment_col]):
-            # Remove commas and convert to float
-            amount = -float(str(row[payment_col]).replace(',', ''))
-        return amount
+        # Check if using single amount column or separate charge/payment columns
+        amount_col = file_config.get('amount_column')
+        if amount_col:
+            # Single amount column
+            amount = float(str(row[amount_col]).replace(',', ''))
+            charges_are_negative = file_config.get('charges_are_negative', True)
+            
+            if charges_are_negative:
+                # If amount is negative, it's a charge - make it positive
+                # If amount is positive, it's a payment/credit - make it negative
+                return -amount
+            else:
+                # If amount is negative, it's a payment/credit - keep it negative
+                # If amount is positive, it's a charge - keep it positive
+                return amount
+        else:
+            # Separate charge and payment columns
+            charge_col = file_config.get('charge_amount')
+            payment_col = file_config.get('payment_amount')
+            
+            amount = 0.0
+            if charge_col and pd.notna(row[charge_col]):
+                amount = float(str(row[charge_col]).replace(',', ''))
+            elif payment_col and pd.notna(row[payment_col]):
+                amount = -float(str(row[payment_col]).replace(',', ''))
+            return amount
 
-    def _parse_date(self, date_str: str) -> datetime:
-        """Try parsing date with multiple formats."""
-        date_formats = ['%Y-%m-%d', '%m/%d/%Y']
-        for fmt in date_formats:
+    def _standardize_date(self, date_str: str) -> datetime:
+        """Convert date string to datetime object."""
+        try:
+            # Try MM/DD/YYYY format first (for Chase bank statements)
+            return pd.to_datetime(date_str, format='%m/%d/%Y')
+        except ValueError:
             try:
-                return datetime.strptime(date_str, fmt)
+                # Try YYYY-MM-DD format (for QuickBooks)
+                return pd.to_datetime(date_str)
             except ValueError:
-                continue
-        raise ValueError(f"Unable to parse date: {date_str}")
+                raise ValueError(f"Unable to parse date: {date_str}")
 
     def _load_and_standardize_file(self, file_path: str, file_config: Dict) -> pd.DataFrame:
-        """Load CSV and standardize columns."""
-        # Get number of rows to skip from config, default to 0
-        skip_rows = file_config.get('skip_rows', 0)
+        """Load CSV file and standardize the data format."""
+        # Skip rows if specified
+        skiprows = file_config.get('skip_rows', 0)
+        df = pd.read_csv(file_path, skiprows=skiprows)
         
-        # Load CSV with specified number of rows to skip
-        df = pd.read_csv(file_path, skiprows=skip_rows)
+        # Standardize date
+        date_col = file_config.get('date', 'Date')
+        df['date'] = df[date_col].apply(self._standardize_date)
         
-        # Create standardized columns
-        standardized = pd.DataFrame()
-        standardized['description'] = df[file_config['description']]
-        standardized['date'] = df[file_config['date']].apply(self._parse_date)
-        standardized['amount'] = df.apply(lambda row: self._standardize_amount(row, file_config), axis=1)
-        standardized['source_data'] = df.apply(lambda row: dict(row), axis=1)
+        # Standardize description
+        desc_col = file_config.get('description', 'Description')
+        df['description'] = df[desc_col].fillna('')
         
-        return standardized
+        # Standardize amount
+        df['amount'] = df.apply(lambda row: self._standardize_amount(row, file_config), axis=1)
+        
+        return df
 
     def find_mismatches(self, file1_path: str, file2_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Compare transactions and return mismatches."""
-        # Get base filenames without path
-        file1_name = os.path.basename(file1_path)
-        file2_name = os.path.basename(file2_path)
-        
         # Load and standardize both files
         df1 = self._load_and_standardize_file(file1_path, self.config['file1'])
         df2 = self._load_and_standardize_file(file2_path, self.config['file2'])
 
-        # Find transactions unique to each file and duplicates
-        # Only merge on amount, drop other columns before merging
-        df1_merge = df1[['amount']]
-        df2_merge = df2[['amount']]
-        merged = df1_merge.merge(df2_merge, on=['amount'], how='outer', indicator=True)
-        
-        # Count occurrences in each file
-        df1_counts = df1.groupby(['amount']).size().reset_index(name='count1')
-        df2_counts = df2.groupby(['amount']).size().reset_index(name='count2')
-        
-        # Get descriptions and dates for each amount
-        def get_desc_dates(df):
-            from collections import Counter
-            # Create tuples of (date, description) and count them
-            date_desc_pairs = list(zip(df['date'], df['description']))
-            counts = Counter(date_desc_pairs)
-            return [(date, desc, count) for (date, desc), count in counts.items()]
-            
-        # Group by amount and collect date/description info
-        df1_info = df1.groupby('amount').agg({
-            'date': list,
-            'description': list
-        }).reset_index()
-        df1_info['info1'] = df1_info.apply(lambda x: get_desc_dates(pd.DataFrame({
-            'date': x['date'],
-            'description': x['description']
-        })), axis=1)
-        df1_info = df1_info[['amount', 'info1']]
+        # Round amounts to cents
+        df1['amount'] = df1['amount'].round(2)
+        df2['amount'] = df2['amount'].round(2)
 
-        df2_info = df2.groupby('amount').agg({
+        # Group by amount and count occurrences in each file
+        counts1 = df1.groupby('amount').agg({
             'date': list,
-            'description': list
+            'description': list,
         }).reset_index()
-        df2_info['info2'] = df2_info.apply(lambda x: get_desc_dates(pd.DataFrame({
-            'date': x['date'],
-            'description': x['description']
-        })), axis=1)
-        df2_info = df2_info[['amount', 'info2']]
+        counts1['count1'] = counts1['description'].str.len()
         
-        # Merge all information back
-        merged = merged.merge(df1_counts, on=['amount'], how='left')
-        merged = merged.merge(df2_counts, on=['amount'], how='left')
-        merged = merged.merge(df1_info, on=['amount'], how='left')
-        merged = merged.merge(df2_info, on=['amount'], how='left')
-        
-        # Find mismatches
-        only_in_file1 = merged[merged['_merge'] == 'left_only']
-        only_in_file2 = merged[merged['_merge'] == 'right_only']
-        
-        # Find duplicates (where counts don't match)
-        duplicates = merged[
-            (merged['_merge'] == 'both') & 
-            (merged['count1'] != merged['count2'])
-        ]
-        
-        # Remove duplicate rows based on amount
-        duplicates = duplicates.drop_duplicates(subset=['amount'])
-        
-        if not duplicates.empty:
-            print("\nDuplicate transactions (count mismatch):")
-            for _, row in duplicates.iterrows():
-                print(f"\nAmount: {row['amount']}")
-                print(f"Count in {file1_name}: {row['count1']}, Count in {file2_name}: {row['count2']}")
-                print(f"\n{file1_name} entries:")
-                for date, desc, count in row['info1']:
-                    if count > 1:
-                        print(f"  {date.strftime('%Y-%m-%d')}: {desc} (x{count})")
-                    else:
-                        print(f"  {date.strftime('%Y-%m-%d')}: {desc}")
-                print(f"\n{file2_name} entries:")
-                for date, desc, count in row['info2']:
-                    if count > 1:
-                        print(f"  {date.strftime('%Y-%m-%d')}: {desc} (x{count})")
-                    else:
-                        print(f"  {date.strftime('%Y-%m-%d')}: {desc}")
+        counts2 = df2.groupby('amount').agg({
+            'date': list,
+            'description': list,
+        }).reset_index()
+        counts2['count2'] = counts2['description'].str.len()
 
-        return only_in_file1, only_in_file2
+        # Merge on amount
+        merged = pd.merge(counts1, counts2, on=['amount'], how='outer', suffixes=('1', '2'))
+        
+        # Fill NaN counts with 0
+        merged['count1'] = merged['count1'].fillna(0)
+        merged['count2'] = merged['count2'].fillna(0)
+        
+        # Create info columns with dates and descriptions
+        merged['info1'] = merged.apply(lambda row: 
+            [(d, desc, 1) for d, desc in zip(row['date1'], row['description1'])]
+            if isinstance(row['description1'], list) else [], axis=1)
+        merged['info2'] = merged.apply(lambda row: 
+            [(d, desc, 1) for d, desc in zip(row['date2'], row['description2'])]
+            if isinstance(row['description2'], list) else [], axis=1)
+
+        # Find mismatches (where count1 != count2)
+        mismatches1 = merged[merged['count1'] > merged['count2']][['amount', 'count1', 'count2', 'info1']]
+        mismatches2 = merged[merged['count2'] > merged['count1']][['amount', 'count2', 'count1', 'info2']]
+
+        return mismatches1, mismatches2
 
 def match_transactions(bank_transactions, qb_transactions):
     matches = []
@@ -213,15 +188,27 @@ def main():
     matcher = TransactionMatcher(args.config)
     missing_file1, missing_file2 = matcher.find_mismatches(args.bank_file, args.qb_file)
 
-    # Debug: print column names
-    print("\nColumns in missing_file1:", missing_file1.columns.tolist())
-    print("\nColumns in missing_file2:", missing_file2.columns.tolist())
+    def format_info(info_list):
+        return '; '.join(f"{date.strftime('%Y-%m-%d')}: {desc}" for date, desc, _ in info_list)
 
-    print("\nTransactions only in bank file:")
-    print(missing_file1[['amount', 'count1', 'info1']].to_string())
+    def print_mismatches(df, title, found_col, expected_col):
+        print(f"\n{title}")
+        print("     Amount  Found Expected  Info")
+        print("     ------  ----- --------  ----")
+        for idx, row in df.iterrows():
+            amount = f"{row['amount']:8.2f}"
+            found = int(row[found_col])
+            expected = int(row[expected_col])
+            info = row['info']
+            print(f"{idx:3d} {amount} {found:5d} {expected:8d}  {info}")
+
+    # Prepare and print bank file mismatches
+    missing_file1['info'] = missing_file1['info1'].apply(format_info)
+    print_mismatches(missing_file1, "Transactions only in bank file", 'count1', 'count2')
     
-    print("\nTransactions only in QuickBooks file:")
-    print(missing_file2[['amount', 'count2', 'info2']].to_string())
+    # Prepare and print QuickBooks file mismatches
+    missing_file2['info'] = missing_file2['info2'].apply(format_info)
+    print_mismatches(missing_file2, "Transactions only in QuickBooks file", 'count2', 'count1')
 
 if __name__ == "__main__":
     main()
