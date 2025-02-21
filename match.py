@@ -193,14 +193,14 @@ def main():
 
     def print_mismatches(df, title, found_col, expected_col):
         print(f"\n{title}")
-        print("     Amount  Found Expected  Info")
-        print("     ------  ----- --------  ----")
+        print("     Amount    QB  Bank  Info")
+        print("     ------  ---- ----  ----")
         for idx, row in df.iterrows():
             amount = f"{row['amount']:8.2f}"
-            found = int(row[found_col])
-            expected = int(row[expected_col])
+            qb_count = int(row['count2'])
+            bank_count = int(row['count1'])
             info = row['info']
-            print(f"{idx:3d} {amount} {found:5d} {expected:8d}  {info}")
+            print(f"{idx:3d} {amount} {qb_count:4d} {bank_count:4d}  {info}")
 
     # Prepare and print bank file mismatches
     missing_file1['info'] = missing_file1['info1'].apply(format_info)
