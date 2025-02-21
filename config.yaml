@@ -9,3 +9,4 @@ file2:
   date: "Date"
   charge_amount: "Charge"
   payment_amount: "Payment"
+  skip_rows: 2

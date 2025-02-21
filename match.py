@@ -37,7 +37,11 @@ class TransactionMatcher:
 
     def _load_and_standardize_file(self, file_path: str, file_config: Dict) -> pd.DataFrame:
         """Load CSV and standardize columns."""
-        df = pd.read_csv(file_path)
+        # Get number of rows to skip from config, default to 0
+        skip_rows = file_config.get('skip_rows', 0)
+        
+        # Load CSV with specified number of rows to skip
+        df = pd.read_csv(file_path, skiprows=skip_rows)
         
         # Create standardized columns
         standardized = pd.DataFrame()
@@ -59,7 +63,10 @@ class TransactionMatcher:
         df2 = self._load_and_standardize_file(file2_path, self.config['file2'])
 
         # Find transactions unique to each file and duplicates
-        merged = df1.merge(df2, on=['amount'], how='outer', indicator=True)
+        # Only merge on amount, drop other columns before merging
+        df1_merge = df1[['amount']]
+        df2_merge = df2[['amount']]
+        merged = df1_merge.merge(df2_merge, on=['amount'], how='outer', indicator=True)
         
         # Count occurrences in each file
         df1_counts = df1.groupby(['amount']).size().reset_index(name='count1')
@@ -94,7 +101,7 @@ class TransactionMatcher:
         })), axis=1)
         df2_info = df2_info[['amount', 'info2']]
         
-        # Merge counts and descriptions with the merged dataframe
+        # Merge all information back
         merged = merged.merge(df1_counts, on=['amount'], how='left')
         merged = merged.merge(df2_counts, on=['amount'], how='left')
         merged = merged.merge(df1_info, on=['amount'], how='left')
@@ -211,10 +218,10 @@ def main():
     print("\nColumns in missing_file2:", missing_file2.columns.tolist())
 
     print("\nTransactions only in file 1:")
-    print(missing_file1[['date_x', 'description_x', 'amount']].to_string())
+    print(missing_file1[['amount', 'count1', 'info1']].to_string())
     
     print("\nTransactions only in file 2:")
-    print(missing_file2[['date_y', 'description_y', 'amount']].to_string())
+    print(missing_file2[['amount', 'count2', 'info2']].to_string())
 
 if __name__ == "__main__":
     main()
