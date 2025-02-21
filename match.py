@@ -204,23 +204,23 @@ def match_transactions(bank_transactions, qb_transactions):
     return matches, mismatches
 
 def main():
-    parser = argparse.ArgumentParser(description='Compare transactions from two CSV files')
+    parser = argparse.ArgumentParser(description='Compare transactions from bank statement and QuickBooks files')
     parser.add_argument('--config', default='config.yaml', help='Path to YAML configuration file (default: config.yaml)')
-    parser.add_argument('file1', help='Path to first CSV file')
-    parser.add_argument('file2', help='Path to second CSV file')
+    parser.add_argument('bank_file', help='Path to bank statement CSV file')
+    parser.add_argument('qb_file', help='Path to QuickBooks CSV file')
     args = parser.parse_args()
 
     matcher = TransactionMatcher(args.config)
-    missing_file1, missing_file2 = matcher.find_mismatches(args.file1, args.file2)
+    missing_file1, missing_file2 = matcher.find_mismatches(args.bank_file, args.qb_file)
 
     # Debug: print column names
     print("\nColumns in missing_file1:", missing_file1.columns.tolist())
     print("\nColumns in missing_file2:", missing_file2.columns.tolist())
 
-    print("\nTransactions only in file 1:")
+    print("\nTransactions only in bank file:")
     print(missing_file1[['amount', 'count1', 'info1']].to_string())
     
-    print("\nTransactions only in file 2:")
+    print("\nTransactions only in QuickBooks file:")
     print(missing_file2[['amount', 'count2', 'info2']].to_string())
 
 if __name__ == "__main__":
