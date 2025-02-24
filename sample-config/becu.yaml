@@ -1,0 +1,15 @@
+# Account Number,Post Date,Check,Description,Debit,Credit,Status,Balance
+# "****3655",2/21/2025,,"Descriptive Deposit Incoming Wire Transfer",,20210.00,Posted,19636.00
+
+bank:
+  description: "Description"
+  date: "Post Date"
+  charge_amount: "Debit"
+  payment_amount: "Credit"
+
+qb:
+  description: "Memo"
+  date: "Date"
+  charge_amount: "Payment"
+  payment_amount: "Deposit"
+  skip_rows: 2

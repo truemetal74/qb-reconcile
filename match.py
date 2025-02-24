@@ -74,8 +74,8 @@ class TransactionMatcher:
     def find_mismatches(self, file1_path: str, file2_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Compare transactions and return mismatches."""
         # Load and standardize both files
-        df1 = self._load_and_standardize_file(file1_path, self.config['file1'])
-        df2 = self._load_and_standardize_file(file2_path, self.config['file2'])
+        df1 = self._load_and_standardize_file(file1_path, self.config['bank'])
+        df2 = self._load_and_standardize_file(file2_path, self.config['qb'])
 
         # Round amounts to cents
         df1['amount'] = df1['amount'].round(2)
